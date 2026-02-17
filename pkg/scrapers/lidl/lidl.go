@@ -155,7 +155,7 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 	}
 
 	if product.Name == "" {
-		return nil, fmt.Errorf("failed to scrape product name or invalid product page")
+		return nil, models.ErrProductNotFound
 	}
 
 	return product, nil

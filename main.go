@@ -128,6 +128,11 @@ func productHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Error scraping %s %s: %v", store, productID, err)
 
+		if err == models.ErrProductNotFound || strings.Contains(err.Error(), "product not found") {
+			api.WriteNotFound(w, "Product not found", r.URL.Path)
+			return
+		}
+
 		if strings.Contains(err.Error(), "context deadline exceeded") {
 			api.WriteError(w, http.StatusGatewayTimeout, "Gateway Timeout", "Upstream service timed out", r.URL.Path)
 			return
