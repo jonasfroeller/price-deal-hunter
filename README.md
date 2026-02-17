@@ -1,3 +1,9 @@
 # Price Deal Hunter
 
-WIP
+```bash
+go run main.go
+```
+
+```bash
+go build
+```
