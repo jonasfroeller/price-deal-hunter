@@ -1,0 +1,28 @@
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /app
+
+RUN apk add --no-cache git
+
+# Add latest commit SHA to invalidate cache when the repo changes
+ADD https://api.github.com/repos/jonasfroeller/price-deal-hunter/commits/main /tmp/latest_commit
+
+RUN git clone https://github.com/jonasfroeller/price-deal-hunter.git .
+
+RUN go mod download
+
+RUN go build -o hunter-base .
+
+FROM alpine:latest
+
+WORKDIR /app
+
+# Chromium and dependencies for chromedp
+RUN apk add --no-cache \
+    chromium \
+    ca-certificates \
+    tzdata
+
+COPY --from=builder /app/hunter-base .
+
+ENTRYPOINT ["/app/hunter-base"]

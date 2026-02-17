@@ -1,0 +1,22 @@
+services:
+  hunter_base:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hunter-base-service
+    restart: unless-stopped
+    networks:
+      pihole_net:
+        ipv4_address: ${PIHOLE_IP}
+    environment:
+      - TZ=${TZ}
+    ports:
+      - "${HUNTER_PORT}:${HUNTER_PORT}"
+    volumes:
+      - ${HUNTER_CONFIG_PATH}:/config
+      - ${HUNTER_LOGS_PATH}:/logs
+
+networks:
+  pihole_net:
+    external: true
+    name: pihole_net
