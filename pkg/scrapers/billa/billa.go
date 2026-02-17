@@ -3,6 +3,7 @@ package billa
 import (
 	"fmt"
 	"hunter-base/pkg/models"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -68,6 +69,7 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 		}
 	})
 
+	log.Printf("Navigating to %s", product.URL)
 	err := s.Collector.Visit(product.URL)
 	if err != nil {
 		return nil, err
