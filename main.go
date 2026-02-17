@@ -24,6 +24,7 @@ func main() {
 	} else {
 		fmt.Println("Could not determine local IP address.")
 	}
+	fmt.Printf("Access URL: http://localhost:%s\n", port)
 
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
