@@ -38,6 +38,13 @@ func TestProductHandler(t *testing.T) {
 			expectedType:   "about:blank",
 			expectedDetail: "Store not supported. Available: spar, billa",
 		},
+		{
+			name:           "Invalid ID - No digits",
+			path:           "/stores/billa/products/abc",
+			expectedStatus: http.StatusBadRequest,
+			expectedType:   "about:blank",
+			expectedDetail: "Invalid product ID: abc. Must contain at least one digit.",
+		},
 	}
 
 	for _, tt := range tests {

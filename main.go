@@ -65,7 +65,21 @@ func productHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	store := strings.ToLower(parts[2])
-	productID := parts[4]
+	rawID := parts[4]
+
+	// Filter out non-numeric characters from the ID
+	// e.g. "00-626061" -> "00626061"
+	productID := strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, rawID)
+
+	if productID == "" {
+		api.WriteBadRequest(w, fmt.Sprintf("Invalid product ID: %s. Must contain at least one digit.", rawID), r.URL.Path)
+		return
+	}
 
 	var product *models.Product
 	var err error
