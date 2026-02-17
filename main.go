@@ -6,6 +6,7 @@ import (
 	"hunter-base/pkg/api"
 	"hunter-base/pkg/models"
 	"hunter-base/pkg/scrapers/billa"
+	"hunter-base/pkg/scrapers/lidl"
 	"hunter-base/pkg/scrapers/spar"
 	"log"
 	"net"
@@ -17,7 +18,6 @@ func main() {
 	http.HandleFunc("/stores/", productHandler)
 
 	port := "9090"
-	fmt.Printf("Starting server on :%s...\n", port)
 
 	ip := GetOutboundIP()
 	if ip != nil {
@@ -91,8 +91,11 @@ func productHandler(w http.ResponseWriter, r *http.Request) {
 	case "billa":
 		scraper := billa.NewScraper()
 		product, err = scraper.Scrape(productID)
+	case "lidl":
+		scraper := lidl.NewScraper()
+		product, err = scraper.Scrape(productID)
 	default:
-		api.WriteBadRequest(w, "Store not supported. Available: spar, billa", r.URL.Path)
+		api.WriteBadRequest(w, "Store not supported. Available: spar, billa, lidl", r.URL.Path)
 		return
 	}
 

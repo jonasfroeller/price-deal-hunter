@@ -12,9 +12,9 @@ go build
 
 ## Testing
 
-Run the unit tests with:
+Run all unit tests with:
 ```bash
-go test -v main_test.go main.go
+go test -v ./...
 ```
 
 ## Docker

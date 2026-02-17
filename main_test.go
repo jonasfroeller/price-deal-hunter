@@ -36,7 +36,7 @@ func TestProductHandler(t *testing.T) {
 			path:           "/stores/unknown/products/123",
 			expectedStatus: http.StatusBadRequest,
 			expectedType:   "about:blank",
-			expectedDetail: "Store not supported. Available: spar, billa",
+			expectedDetail: "Store not supported. Available: spar, billa, lidl",
 		},
 		{
 			name:           "Invalid ID - No digits",
