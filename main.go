@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"hunter-base/pkg/api"
 	"hunter-base/pkg/models"
 	"hunter-base/pkg/scrapers/billa"
 	"hunter-base/pkg/scrapers/spar"
@@ -59,7 +60,7 @@ func productHandler(w http.ResponseWriter, r *http.Request) {
 	// parts[4] = {id}
 
 	if len(parts) < 5 || parts[3] != "products" {
-		http.Error(w, "Invalid path. Expected /stores/{store}/products/{id}", http.StatusBadRequest)
+		api.WriteBadRequest(w, "Invalid path. Expected /stores/{store}/products/{id}", r.URL.Path)
 		return
 	}
 
@@ -77,19 +78,25 @@ func productHandler(w http.ResponseWriter, r *http.Request) {
 		scraper := billa.NewScraper()
 		product, err = scraper.Scrape(productID)
 	default:
-		http.Error(w, "Store not supported. Available: spar, billa", http.StatusBadRequest)
+		api.WriteBadRequest(w, "Store not supported. Available: spar, billa", r.URL.Path)
 		return
 	}
 
 	if err != nil {
 		log.Printf("Error scraping %s %s: %v", store, productID, err)
-		http.Error(w, fmt.Sprintf("Failed to get product: %v", err), http.StatusInternalServerError)
+
+		if strings.Contains(err.Error(), "context deadline exceeded") {
+			api.WriteError(w, http.StatusGatewayTimeout, "Gateway Timeout", "Upstream service timed out", r.URL.Path)
+			return
+		}
+
+		api.WriteInternalServerError(w, err, r.URL.Path)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(product); err != nil {
 		log.Printf("Error encoding response: %v", err)
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		api.WriteInternalServerError(w, fmt.Errorf("failed to encode response"), r.URL.Path)
 	}
 }

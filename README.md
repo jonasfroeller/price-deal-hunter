@@ -1,11 +1,20 @@
 # Price Deal Hunter
 
+## Get Started
+
 ```bash
 go run main.go
 ```
 
 ```bash
 go build
+```
+
+## Testing
+
+Run the unit tests with:
+```bash
+go test -v main_test.go main.go
 ```
 
 ## Docker
