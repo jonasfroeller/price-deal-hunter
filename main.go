@@ -12,12 +12,15 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	scalargo "github.com/bdpiprava/scalar-go"
 )
 
 func main() {
-	http.HandleFunc("/stores/", productHandler)
-
 	port := "9090"
+
+	// Root handler - serves Scalar docs on /, API on /stores/
+	http.HandleFunc("/", rootHandler)
 
 	ip := GetOutboundIP()
 	if ip != nil {
@@ -26,8 +29,31 @@ func main() {
 		fmt.Println("Could not determine local IP address.")
 	}
 	fmt.Printf("Access URL: http://localhost:%s\n", port)
+	fmt.Printf("API Docs: http://localhost:%s/\n", port)
 
 	log.Fatal(http.ListenAndServe(":"+port, nil))
+}
+
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	// API requests go to product handler
+	if strings.HasPrefix(r.URL.Path, "/stores/") {
+		productHandler(w, r)
+		return
+	}
+
+	// Serve Scalar docs on root path
+	html, err := scalargo.NewV2(
+		scalargo.WithSpecDir("./"),
+		scalargo.WithMetaDataOpts(
+			scalargo.WithTitle("Price Deal Hunter API"),
+		),
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, html)
 }
 
 func GetOutboundIP() net.IP {

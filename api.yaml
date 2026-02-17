@@ -1,0 +1,195 @@
+openapi: 3.0.0
+info:
+  title: Price Deal Hunter API
+  description: API for retrieving product information from various grocery stores (Spar, Billa, Lidl)
+  version: 0.2.0
+  contact:
+    name: Price Deal Hunter
+servers:
+  - url: http://localhost:9090
+    description: Local development server
+
+paths:
+  /stores/{store}/products/{id}:
+    get:
+      summary: Get product details
+      description: Retrieves detailed information about a specific product from a supported store
+      tags:
+        - Products
+      parameters:
+        - name: store
+          in: path
+          required: true
+          description: The store name (spar, billa, or lidl)
+          schema:
+            type: string
+            enum:
+              - spar
+              - billa
+              - lidl
+        - name: id
+          in: path
+          required: true
+          description: The product ID (non-numeric characters will be filtered out)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Product details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+              examples:
+                SPAR:
+                  summary: SPAR Example
+                  value:
+                    source: "SPAR"
+                    id: "2020003710438"
+                    name: "S-BUDGET Haselnuss Mignon"
+                    price: 0
+                    currency: "EUR"
+                    url: "https://www.spar.at/produktwelt/p2020003710438"
+                    scraped_at: "2026-02-17T20:33:33.814283+01:00"
+                    is_available: false
+                    is_discounted: false
+                BILLA:
+                  summary: BILLA Example
+                  value:
+                    source: "BILLA"
+                    id: "00626061"
+                    name: "Philadelphia Doppelrahmstufe Natur"
+                    price: 1.66
+                    old_price: 2.49
+                    currency: "EUR"
+                    url: "https://shop.billa.at/produkte/00626061"
+                    scraped_at: "2026-02-17T20:33:33.8127+01:00"
+                    is_available: true
+                    is_discounted: true
+                LIDL:
+                  summary: LIDL Example
+                  value:
+                    source: "LIDL"
+                    id: "10045016"
+                    name: "Salatherzen"
+                    price: 1
+                    currency: "EUR"
+                    url: "https://www.lidl.at/p/product/p10045016"
+                    scraped_at: "2026-02-17T20:33:33.8127+01:00"
+                    is_available: true
+                    is_discounted: true
+                    discount_label: "AKTION + Lidl Plus"
+                    availability_label: "Filiale 16.02. - 18.02."
+        '400':
+          description: Bad request - Invalid store or product ID
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "about:blank"
+                title: "Bad Request"
+                status: 400
+                detail: "Store not supported. Available: spar, billa, lidl"
+                instance: "/stores/unsupported/products/123"
+        '404':
+          description: Product not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '500':
+          description: Internal server error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '504':
+          description: Gateway timeout - Upstream service timed out
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+components:
+  schemas:
+    Product:
+      type: object
+      properties:
+        source:
+          type: string
+          description: The grocery store source (SPAR, BILLA, LIDL)
+        id:
+          type: string
+          description: The product ID
+        name:
+          type: string
+          description: The product name
+        price:
+          type: number
+          format: float
+          description: The current price
+        old_price:
+          type: number
+          format: float
+          description: The previous price before discount
+        currency:
+          type: string
+          description: The currency code (e.g. EUR)
+        url:
+          type: string
+          description: The product URL
+        scraped_at:
+          type: string
+          format: date-time
+          description: The time the product was scraped
+        is_available:
+          type: boolean
+          description: Whether the product is available
+        is_discounted:
+          type: boolean
+          description: Whether the product is discounted
+        discount_label:
+          type: string
+          description: The discount label
+        availability_label:
+          type: string
+          description: The availability label
+        price_details:
+          type: string
+          description: Additional price details
+      required:
+        - source
+        - id
+        - name
+        - price
+        - currency
+        - url
+        - scraped_at
+        - is_available
+        - is_discounted
+    
+    ProblemDetails:
+      type: object
+      description: RFC 7807 Problem Details for HTTP APIs
+      properties:
+        type:
+          type: string
+          description: A URI reference that identifies the problem type
+        title:
+          type: string
+          description: A short, human-readable summary of the problem type
+        status:
+          type: integer
+          description: The HTTP status code
+        detail:
+          type: string
+          description: A human-readable explanation specific to this occurrence
+        instance:
+          type: string
+          description: A URI reference that identifies the specific occurrence
+      required:
+        - type
+        - title
+        - status
+        - detail

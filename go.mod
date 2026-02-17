@@ -2,7 +2,11 @@ module hunter-base
 
 go 1.24.0
 
-require github.com/gocolly/colly/v2 v2.3.0
+require (
+	github.com/bdpiprava/scalar-go v0.13.0
+	github.com/chromedp/chromedp v0.14.2
+	github.com/gocolly/colly/v2 v2.3.0
+)
 
 require (
 	github.com/PuerkitoBio/goquery v1.11.0 // indirect
@@ -12,7 +16,6 @@ require (
 	github.com/antchfx/xpath v1.3.5 // indirect
 	github.com/bits-and-blooms/bitset v1.24.4 // indirect
 	github.com/chromedp/cdproto v0.0.0-20250724212937-08a3db8b4327 // indirect
-	github.com/chromedp/chromedp v0.14.2 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/go-json-experiment/json v0.0.0-20250725192818-e39067aee2d2 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
@@ -30,4 +33,5 @@ require (
 	golang.org/x/text v0.31.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
