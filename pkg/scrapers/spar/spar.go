@@ -111,6 +111,7 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 		oldPriceStr = strings.ReplaceAll(oldPriceStr, ",", ".")
 		if val, err := strconv.ParseFloat(oldPriceStr, 64); err == nil {
 			product.OldPrice = val
+			product.IsDiscounted = true
 		}
 	}
 
