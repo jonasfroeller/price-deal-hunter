@@ -7,14 +7,45 @@ import (
 	"hunter-base/pkg/scrapers/billa"
 	"hunter-base/pkg/scrapers/spar"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 )
 
 func main() {
 	http.HandleFunc("/stores/", productHandler)
-	fmt.Println("Starting server on :9090...")
-	log.Fatal(http.ListenAndServe(":9090", nil))
+
+	port := "9090"
+	fmt.Printf("Starting server on :%s...\n", port)
+
+	ip := GetOutboundIP()
+	if ip != nil {
+		fmt.Printf("Local Network URL: http://%s:%s\n", ip.String(), port)
+	} else {
+		fmt.Println("Could not determine local IP address.")
+	}
+
+	log.Fatal(http.ListenAndServe(":"+port, nil))
+}
+
+func GetOutboundIP() net.IP {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		addrs, _ := net.InterfaceAddrs()
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				if ipnet.IP.To4() != nil {
+					return ipnet.IP
+				}
+			}
+		}
+		return nil
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+
+	return localAddr.IP
 }
 
 func productHandler(w http.ResponseWriter, r *http.Request) {
