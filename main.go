@@ -6,6 +6,7 @@ import (
 	"hunter-base/pkg/api"
 	"hunter-base/pkg/models"
 	"hunter-base/pkg/scrapers/billa"
+	"hunter-base/pkg/scrapers/hofer"
 	"hunter-base/pkg/scrapers/lidl"
 	"hunter-base/pkg/scrapers/spar"
 	"log"
@@ -120,8 +121,11 @@ func productHandler(w http.ResponseWriter, r *http.Request) {
 	case "lidl":
 		scraper := lidl.NewScraper()
 		product, err = scraper.Scrape(productID)
+	case "hofer":
+		scraper := hofer.NewScraper()
+		product, err = scraper.Scrape(productID)
 	default:
-		api.WriteBadRequest(w, "Store not supported. Available: spar, billa, lidl", r.URL.Path)
+		api.WriteBadRequest(w, "Store not supported. Available: spar, billa, lidl, hofer", r.URL.Path)
 		return
 	}
 

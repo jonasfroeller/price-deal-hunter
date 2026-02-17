@@ -27,6 +27,7 @@ paths:
               - spar
               - billa
               - lidl
+              - hofer
         - name: id
           in: path
           required: true
@@ -80,6 +81,19 @@ paths:
                     is_discounted: true
                     discount_label: "AKTION + Lidl Plus"
                     availability_label: "Filiale 16.02. - 18.02."
+                HOFER:
+                  summary: HOFER Example
+                  value:
+                    source: "HOFER"
+                    id: "000000000592213001"
+                    name: "BACK FAMILY Süße Mahlzeiten, Kaiserschmarrn"
+                    price: 0.99
+                    currency: "EUR"
+                    url: "https://www.hofer.at/de/p.000000000592213001.html"
+                    scraped_at: "2026-02-17T20:33:33.814283+01:00"
+                    is_available: true
+                    is_discounted: false
+                    availability_label: "Available"
         '400':
           description: Bad request - Invalid store or product ID
           content:
