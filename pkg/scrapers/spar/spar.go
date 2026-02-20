@@ -34,7 +34,10 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 	}
 
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"),
+		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"),
+		chromedp.Flag("disable-blink-features", "AutomationControlled"),
+		chromedp.Flag("excludeSwitches", "enable-automation"),
+		chromedp.Flag("disable-infobars", true),
 	)
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer cancelAlloc()
@@ -51,7 +54,25 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 
 	err := chromedp.Run(scrapeCtx,
 		chromedp.Navigate(product.URL),
-		chromedp.WaitReady(`h1.heading__title, h1[data-tosca='pdp-heading']`, chromedp.ByQuery),
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			ticker := time.NewTicker(500 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-ticker.C:
+					var isCF bool
+					if err := chromedp.Evaluate(`document.title.includes("Just a moment") || document.title.includes("Cloudflare") || !!document.querySelector('.cf-browser-verification') || !!document.querySelector('#challenge-running') || (document.body && (document.body.innerText.includes("Cloudflare") || document.body.innerText.includes("Ray ID")))`, &isCF).Do(ctx); err == nil && isCF {
+						return fmt.Errorf("Cloudflare bot protection triggered")
+					}
+					var hasHeading bool
+					if err := chromedp.Evaluate(`!!(document.querySelector("h1.heading__title") || document.querySelector("h1[data-tosca='pdp-heading']"))`, &hasHeading).Do(ctx); err == nil && hasHeading {
+						return nil
+					}
+				}
+			}
+		}),
 		chromedp.Evaluate(`document.querySelector("h1[data-tosca='pdp-heading']")?.innerText || document.querySelector("h1.heading__title")?.innerText || ""`, &name),
 		chromedp.Evaluate(`document.querySelector(".product-price__price")?.innerText || ""`, &priceStr),
 		chromedp.Evaluate(`document.querySelector(".product-price__price-old")?.innerText || ""`, &oldPriceStr),
