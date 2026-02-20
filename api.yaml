@@ -1,8 +1,8 @@
 openapi: 3.0.0
 info:
   title: Price Deal Hunter API
-  description: API for retrieving product information from various grocery stores (Spar, Billa, Lidl)
-  version: 0.2.0
+  description: API for retrieving product information from various grocery stores (Spar, Billa, Lidl, Hofer)
+  version: 0.4.3
   contact:
     name: Price Deal Hunter
 servers:
@@ -20,7 +20,7 @@ paths:
         - name: store
           in: path
           required: true
-          description: The store name (spar, billa, or lidl)
+          description: The store name (spar, billa, lidl, or hofer)
           schema:
             type: string
             enum:
@@ -104,7 +104,7 @@ paths:
                 type: "about:blank"
                 title: "Bad Request"
                 status: 400
-                detail: "Store not supported. Available: spar, billa, lidl"
+                detail: "Store not supported. Available: spar, billa, lidl, hofer"
                 instance: "/stores/unsupported/products/123"
         '404':
           description: Product not found
@@ -132,7 +132,7 @@ components:
       properties:
         source:
           type: string
-          description: The grocery store source (SPAR, BILLA, LIDL)
+          description: The grocery store source (SPAR, BILLA, LIDL, HOFER)
         id:
           type: string
           description: The product ID
