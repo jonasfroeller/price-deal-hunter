@@ -88,25 +88,44 @@ func GetOutboundIP() net.IP {
 }
 
 func productHandler(w http.ResponseWriter, r *http.Request) {
-	// Acquire semaphore to prevent system overload
-	scraperSemaphore <- struct{}{}
-	defer func() { <-scraperSemaphore }()
-
 	// Path expected: /stores/{store}/products/{id}
 	parts := strings.Split(r.URL.Path, "/")
 	// parts[0] = ""
 	// parts[1] = "stores"
 	// parts[2] = {store}
 	// parts[3] = "products"
-	// parts[4] = {id}
+	// parts[4] = {id} or "batch"
 
 	if len(parts) < 5 || parts[3] != "products" {
-		api.WriteBadRequest(w, "Invalid path. Expected /stores/{store}/products/{id}", r.URL.Path)
+		api.WriteBadRequest(w, "Invalid path. Expected /stores/{store}/products/{id} or /stores/{store}/products/batch", r.URL.Path)
 		return
 	}
 
 	store := strings.ToLower(parts[2])
 	rawID := parts[4]
+
+	if rawID == "batch" {
+		if r.Method != http.MethodPost {
+			api.WriteBadRequest(w, "Method not allowed for batch endpoint. Use POST.", r.URL.Path)
+			return
+		}
+		handleBatchProducts(w, r, store)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		api.WriteBadRequest(w, "Method not allowed. Use GET for single product.", r.URL.Path)
+		return
+	}
+
+	if store != "spar" && store != "billa" && store != "lidl" && store != "hofer" {
+		api.WriteBadRequest(w, "Store not supported. Available: spar, billa, lidl, hofer", r.URL.Path)
+		return
+	}
+
+	// Acquire semaphore to prevent system overload
+	scraperSemaphore <- struct{}{}
+	defer func() { <-scraperSemaphore }()
 
 	// Filter out non-numeric characters from the ID
 	// e.g. "00-626061" -> "00626061"
@@ -122,26 +141,7 @@ func productHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var product *models.Product
-	var err error
-
-	switch store {
-	case "spar":
-		scraper := spar.NewScraper()
-		product, err = scraper.Scrape(productID)
-	case "billa":
-		scraper := billa.NewScraper()
-		product, err = scraper.Scrape(productID)
-	case "lidl":
-		scraper := lidl.NewScraper()
-		product, err = scraper.Scrape(productID)
-	case "hofer":
-		scraper := hofer.NewScraper()
-		product, err = scraper.Scrape(productID)
-	default:
-		api.WriteBadRequest(w, "Store not supported. Available: spar, billa, lidl, hofer", r.URL.Path)
-		return
-	}
+	product, err := scrapeProduct(store, productID)
 
 	if err != nil {
 		log.Printf("Error scraping %s %s: %v", store, productID, err)
@@ -163,6 +163,92 @@ func productHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(product); err != nil {
 		log.Printf("Error encoding response: %v", err)
+		api.WriteInternalServerError(w, fmt.Errorf("failed to encode response"), r.URL.Path)
+	}
+}
+
+func scrapeProduct(store, productID string) (*models.Product, error) {
+	switch store {
+	case "spar":
+		scraper := spar.NewScraper()
+		return scraper.Scrape(productID)
+	case "billa":
+		scraper := billa.NewScraper()
+		return scraper.Scrape(productID)
+	case "lidl":
+		scraper := lidl.NewScraper()
+		return scraper.Scrape(productID)
+	case "hofer":
+		scraper := hofer.NewScraper()
+		return scraper.Scrape(productID)
+	default:
+		return nil, fmt.Errorf("store not supported. Available: spar, billa, lidl, hofer")
+	}
+}
+
+func handleBatchProducts(w http.ResponseWriter, r *http.Request, store string) {
+	if store != "spar" && store != "billa" && store != "lidl" && store != "hofer" {
+		api.WriteBadRequest(w, "Store not supported. Available: spar, billa, lidl, hofer", r.URL.Path)
+		return
+	}
+
+	var batch []map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
+		api.WriteBadRequest(w, "Invalid JSON body. Expected array of objects.", r.URL.Path)
+		return
+	}
+	defer r.Body.Close()
+
+	for _, item := range batch {
+		barcodeVal, ok := item["barcode"]
+		if !ok {
+			item["store_info"] = map[string]string{"error": "missing barcode block"}
+			continue
+		}
+
+		var rawID string
+		switch v := barcodeVal.(type) {
+		case string:
+			rawID = v
+		case float64:
+			rawID = fmt.Sprintf("%.0f", v)
+		default:
+			item["store_info"] = map[string]string{"error": "invalid barcode format"}
+			continue
+		}
+
+		productID := strings.Map(func(r rune) rune {
+			if r >= '0' && r <= '9' {
+				return r
+			}
+			return -1
+		}, rawID)
+
+		if productID == "" {
+			item["store_info"] = map[string]string{"error": "barcode must contain at least one digit"}
+			continue
+		}
+
+		scraperSemaphore <- struct{}{}
+		product, err := scrapeProduct(store, productID)
+		<-scraperSemaphore
+
+		if err != nil {
+			if err == models.ErrProductNotFound || strings.Contains(err.Error(), "product not found") {
+				item["store_info"] = map[string]string{"error": "Product not found"}
+			} else if strings.Contains(err.Error(), "context deadline exceeded") || strings.Contains(err.Error(), "Client.Timeout") || strings.Contains(err.Error(), "timeout") {
+				item["store_info"] = map[string]string{"error": "Gateway Timeout"}
+			} else {
+				item["store_info"] = map[string]string{"error": err.Error()}
+			}
+		} else {
+			item["store_info"] = product
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(batch); err != nil {
+		log.Printf("Error encoding batch response: %v", err)
 		api.WriteInternalServerError(w, fmt.Errorf("failed to encode response"), r.URL.Path)
 	}
 }

@@ -2,7 +2,7 @@ openapi: 3.0.0
 info:
   title: Price Deal Hunter API
   description: API for retrieving product information from various grocery stores (Spar, Billa, Lidl, Hofer)
-  version: 0.4.3
+  version: 0.5.0
   contact:
     name: Price Deal Hunter
 servers:
@@ -120,6 +120,86 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
         '504':
           description: Gateway timeout - Upstream service timed out
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+  /stores/{store}/products/batch:
+    post:
+      summary: Batch retrieve product details
+      description: Retrieves detailed information about multiple products from a supported store. Send an array of objects containing a `barcode` field. The response will be the same array with an appended `store_info` property for each valid item.
+      tags:
+        - Products
+      parameters:
+        - name: store
+          in: path
+          required: true
+          description: The store name (spar, billa, lidl, or hofer)
+          schema:
+            type: string
+            enum:
+              - spar
+              - billa
+              - lidl
+              - hofer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: object
+                properties:
+                  barcode:
+                    type: string
+                required:
+                  - barcode
+                additionalProperties: true
+            example:
+              - barcode: "2020003710438"
+                custom_id: 1
+              - barcode: "00626061"
+                custom_id: 2
+      responses:
+        '200':
+          description: Batch product details processed successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    store_info:
+                      $ref: '#/components/schemas/Product'
+                  additionalProperties: true
+              example:
+                - barcode: "2020003710438"
+                  custom_id: 1
+                  store_info:
+                    source: "SPAR"
+                    id: "2020003710438"
+                    name: "S-BUDGET Haselnuss Mignon"
+                    price: 0
+                    currency: "EUR"
+                    url: "https://www.spar.at/produktwelt/p2020003710438"
+                    scraped_at: "2026-02-17T20:33:33.814283+01:00"
+                    is_available: false
+                    is_discounted: false
+                - barcode: "00626061"
+                  custom_id: 2
+                  store_info:
+                    error: "Product not found"
+        '400':
+          description: Bad request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '500':
+          description: Internal server error
           content:
             application/problem+json:
               schema:
