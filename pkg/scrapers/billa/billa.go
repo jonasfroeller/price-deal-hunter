@@ -3,6 +3,7 @@ package billa
 import (
 	"hunter-base/pkg/models"
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,10 @@ func NewScraper() *Scraper {
 		colly.AllowedDomains("shop.billa.at"),
 		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"),
 	)
+	c.WithTransport(&http.Transport{
+		ResponseHeaderTimeout: 30 * time.Second,
+	})
+	c.SetRequestTimeout(30 * time.Second)
 	return &Scraper{
 		Collector: c,
 	}

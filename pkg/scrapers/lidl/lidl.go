@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hunter-base/pkg/models"
 	"log"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -27,6 +28,10 @@ func NewScraper() *Scraper {
 		colly.AllowedDomains("www.lidl.at", "127.0.0.1"), // localhost for testing
 		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"),
 	)
+	c.WithTransport(&http.Transport{
+		ResponseHeaderTimeout: 30 * time.Second,
+	})
+	c.SetRequestTimeout(30 * time.Second)
 	return &Scraper{
 		Collector: c,
 		BaseURL:   "https://www.lidl.at/p/product/p",

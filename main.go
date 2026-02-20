@@ -137,8 +137,8 @@ func productHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if strings.Contains(err.Error(), "context deadline exceeded") {
-			api.WriteError(w, http.StatusGatewayTimeout, "Gateway Timeout", "Upstream service timed out", r.URL.Path)
+		if strings.Contains(err.Error(), "context deadline exceeded") || strings.Contains(err.Error(), "Client.Timeout") || strings.Contains(err.Error(), "timeout") {
+			api.WriteError(w, http.StatusGatewayTimeout, "Gateway Timeout", "Upstream service timed out: "+err.Error(), r.URL.Path)
 			return
 		}
 
