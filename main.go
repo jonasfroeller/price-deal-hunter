@@ -13,9 +13,12 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	scalargo "github.com/bdpiprava/scalar-go"
 )
+
+var scraperSemaphore = make(chan struct{}, 3)
 
 func main() {
 	port := "9090"
@@ -32,7 +35,14 @@ func main() {
 	fmt.Printf("Access URL: http://localhost:%s\n", port)
 	fmt.Printf("API Docs: http://localhost:%s/\n", port)
 
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	server := &http.Server{
+		Addr:              ":" + port,
+		Handler:           nil, // Uses DefaultServeMux
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	log.Fatal(server.ListenAndServe())
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
@@ -78,6 +88,10 @@ func GetOutboundIP() net.IP {
 }
 
 func productHandler(w http.ResponseWriter, r *http.Request) {
+	// Acquire semaphore to prevent system overload
+	scraperSemaphore <- struct{}{}
+	defer func() { <-scraperSemaphore }()
+
 	// Path expected: /stores/{store}/products/{id}
 	parts := strings.Split(r.URL.Path, "/")
 	// parts[0] = ""
