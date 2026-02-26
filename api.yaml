@@ -2,7 +2,7 @@ openapi: 3.0.0
 info:
   title: Price Deal Hunter API
   description: API for retrieving product information from various grocery stores (Spar, Billa, Lidl, Hofer)
-  version: 0.5.0
+  version: 0.6.1
   contact:
     name: Price Deal Hunter
 servers:
