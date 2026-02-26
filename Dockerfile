@@ -20,7 +20,8 @@ RUN apk add --no-cache \
     chromium \
     ca-certificates \
     tzdata \
-    xvfb
+    xvfb \
+    xauth
 
 COPY --from=builder /app/hunter-base .
 COPY --from=builder /app/api.yaml .
