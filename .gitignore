@@ -3,3 +3,6 @@
 *.py
 
 .env
+
+cache.db
+*_debug.png
