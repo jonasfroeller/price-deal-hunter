@@ -19,7 +19,8 @@ WORKDIR /app
 RUN apk add --no-cache \
     chromium \
     ca-certificates \
-    tzdata
+    tzdata \
+    xvfb
 
 COPY --from=builder /app/hunter-base .
 COPY --from=builder /app/api.yaml .

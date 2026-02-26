@@ -6,10 +6,12 @@ import (
 	"hunter-base/pkg/models"
 	"log"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
+	cu "github.com/Davincible/chromedp-undetected"
 	"github.com/chromedp/chromedp"
 )
 
@@ -33,38 +35,47 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 		ScrapedAt: time.Now(),
 	}
 
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"),
-		chromedp.Flag("disable-blink-features", "AutomationControlled"),
-		chromedp.Flag("excludeSwitches", "enable-automation"),
-		chromedp.Flag("disable-infobars", true),
-	)
-	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
-	defer cancelAlloc()
+	opts := []cu.Option{
+		cu.WithTimeout(120 * time.Second),
+	}
+	if runtime.GOOS == "linux" {
+		opts = append(opts, cu.WithHeadless())
+	}
 
-	ctx, cancel := chromedp.NewContext(allocCtx)
+	ctx, cancel, err := cu.New(cu.NewConfig(opts...))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create undetected browser: %w", err)
+	}
 	defer cancel()
-
-	scrapeCtx, cancelScrape := context.WithTimeout(ctx, 60*time.Second)
-	defer cancelScrape()
 
 	var name, priceStr, oldPriceStr, articleNumber string
 
 	log.Printf("Navigating to %s", product.URL)
 
-	err := chromedp.Run(scrapeCtx,
+	err = chromedp.Run(ctx,
 		chromedp.Navigate(product.URL),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			ticker := time.NewTicker(500 * time.Millisecond)
 			defer ticker.Stop()
+			cfPolls := 0
 			for {
 				select {
 				case <-ctx.Done():
+					if cfPolls > 0 {
+						return fmt.Errorf("cloudflare challenge did not resolve after %d polls", cfPolls)
+					}
 					return ctx.Err()
 				case <-ticker.C:
 					var isCF bool
 					if err := chromedp.Evaluate(`document.title.includes("Just a moment") || document.title.includes("Cloudflare") || !!document.querySelector('.cf-browser-verification') || !!document.querySelector('#challenge-running') || (document.body && (document.body.innerText.includes("Cloudflare") || document.body.innerText.includes("Ray ID")))`, &isCF).Do(ctx); err == nil && isCF {
-						return fmt.Errorf("Cloudflare bot protection triggered")
+						if cfPolls == 0 {
+							log.Println("Cloudflare challenge detected, waiting for auto-resolution...")
+						}
+						cfPolls++
+						continue
+					}
+					if cfPolls > 0 {
+						log.Printf("Cloudflare challenge resolved after %d polls", cfPolls)
 					}
 					var hasHeading bool
 					if err := chromedp.Evaluate(`!!(document.querySelector("h1.heading__title") || document.querySelector("h1[data-tosca='pdp-heading']"))`, &hasHeading).Do(ctx); err == nil && hasHeading {
@@ -86,28 +97,31 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 
 	if err != nil {
 		log.Printf("Chromedp run failed: %v", err)
-		debugCtx, cancelDebug := context.WithTimeout(ctx, 30*time.Second)
-		defer cancelDebug()
 
-		var buf []byte
-		if errShot := chromedp.Run(debugCtx, chromedp.CaptureScreenshot(&buf)); errShot != nil {
-			log.Printf("Failed to capture screenshot: %v", errShot)
-		} else {
-			if errWrite := os.WriteFile("spar_debug.png", buf, 0644); errWrite != nil {
-				log.Printf("Failed to write screenshot: %v", errWrite)
+		if !strings.Contains(err.Error(), "cloudflare") {
+			debugCtx, cancelDebug := context.WithTimeout(ctx, 30*time.Second)
+			defer cancelDebug()
+
+			var buf []byte
+			if errShot := chromedp.Run(debugCtx, chromedp.CaptureScreenshot(&buf)); errShot != nil {
+				log.Printf("Failed to capture screenshot: %v", errShot)
 			} else {
-				log.Println("Screenshot saved to spar_debug.png")
+				if errWrite := os.WriteFile("spar_debug.png", buf, 0644); errWrite != nil {
+					log.Printf("Failed to write screenshot: %v", errWrite)
+				} else {
+					log.Println("Screenshot saved to spar_debug.png")
+				}
 			}
-		}
 
-		var html string
-		if errHTML := chromedp.Run(debugCtx, chromedp.Evaluate(`document.documentElement.outerHTML`, &html)); errHTML != nil {
-			log.Printf("Failed to capture HTML: %v", errHTML)
-		} else {
-			if errWrite := os.WriteFile("spar_debug.html", []byte(html), 0644); errWrite != nil {
-				log.Printf("Failed to write HTML: %v", errWrite)
+			var html string
+			if errHTML := chromedp.Run(debugCtx, chromedp.Evaluate(`document.documentElement.outerHTML`, &html)); errHTML != nil {
+				log.Printf("Failed to capture HTML: %v", errHTML)
 			} else {
-				log.Println("HTML saved to spar_debug.html")
+				if errWrite := os.WriteFile("spar_debug.html", []byte(html), 0644); errWrite != nil {
+					log.Printf("Failed to write HTML: %v", errWrite)
+				} else {
+					log.Println("HTML saved to spar_debug.html")
+				}
 			}
 		}
 

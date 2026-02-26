@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hunter-base/pkg/api"
 	"hunter-base/pkg/cache"
+	"hunter-base/pkg/logger"
 	"hunter-base/pkg/models"
 	"hunter-base/pkg/scrapers/billa"
 	"hunter-base/pkg/scrapers/hofer"
@@ -214,7 +215,7 @@ func scrapeProduct(store, productID string) (*models.Product, error) {
 
 func getProduct(store, productID string) (*models.Product, error) {
 	if cached, ok := productCache.Get(store, productID); ok {
-		log.Printf("Cache hit for %s/%s", store, productID)
+		logger.Dedup("Cache hit for %s/%s", store, productID)
 		return cached, nil
 	}
 
