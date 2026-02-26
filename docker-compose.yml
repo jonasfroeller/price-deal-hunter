@@ -10,11 +10,14 @@ services:
         ipv4_address: ${PIHOLE_IP}
     environment:
       - TZ=${TZ}
+      - CACHE_DB_PATH=/cache/products.db
+      - CACHE_TTL_MINUTES=${CACHE_TTL_MINUTES}
     ports:
       - "${HUNTER_PORT}:${HUNTER_PORT}"
     volumes:
       - ${HUNTER_CONFIG_PATH}:/config
       - ${HUNTER_LOGS_PATH}:/logs
+      - ${HUNTER_CACHE_PATH}:/cache
 
 networks:
   pihole_net:

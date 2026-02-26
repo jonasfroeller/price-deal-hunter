@@ -22,5 +22,6 @@ RUN apk add --no-cache \
     tzdata
 
 COPY --from=builder /app/hunter-base .
+COPY --from=builder /app/api.yaml .
 
 ENTRYPOINT ["/app/hunter-base"]

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hunter-base/pkg/api"
+	"hunter-base/pkg/cache"
 	"hunter-base/pkg/models"
 	"hunter-base/pkg/scrapers/billa"
 	"hunter-base/pkg/scrapers/hofer"
@@ -12,18 +13,43 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	scalargo "github.com/bdpiprava/scalar-go"
 )
 
-var scraperSemaphore = make(chan struct{}, 3)
+var (
+	scraperSemaphore = make(chan struct{}, 3)
+	productCache     *cache.Cache
+)
 
 func main() {
 	port := "9090"
 
-	// Root handler - serves Scalar docs on /, API on /stores/
+	dbPath := os.Getenv("CACHE_DB_PATH")
+	if dbPath == "" {
+		dbPath = "./cache.db"
+	}
+
+	ttlMinutes := 1440
+	if val := os.Getenv("CACHE_TTL_MINUTES"); val != "" {
+		if parsed, err := strconv.Atoi(val); err == nil && parsed > 0 {
+			ttlMinutes = parsed
+		}
+	}
+
+	var err error
+	productCache, err = cache.New(dbPath, time.Duration(ttlMinutes)*time.Minute)
+	if err != nil {
+		log.Fatalf("Failed to initialize cache: %v", err)
+	}
+	defer productCache.Close()
+
+	log.Printf("Cache initialized at %s with TTL %d minutes", dbPath, ttlMinutes)
+
 	http.HandleFunc("/", rootHandler)
 
 	ip := GetOutboundIP()
@@ -37,7 +63,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:              ":" + port,
-		Handler:           nil, // Uses DefaultServeMux
+		Handler:           nil,
 		ReadHeaderTimeout: 15 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
@@ -141,7 +167,7 @@ func productHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	product, err := scrapeProduct(store, productID)
+	product, err := getProduct(store, productID)
 
 	if err != nil {
 		log.Printf("Error scraping %s %s: %v", store, productID, err)
@@ -184,6 +210,21 @@ func scrapeProduct(store, productID string) (*models.Product, error) {
 	default:
 		return nil, fmt.Errorf("store not supported. Available: spar, billa, lidl, hofer")
 	}
+}
+
+func getProduct(store, productID string) (*models.Product, error) {
+	if cached, ok := productCache.Get(store, productID); ok {
+		log.Printf("Cache hit for %s/%s", store, productID)
+		return cached, nil
+	}
+
+	product, err := scrapeProduct(store, productID)
+	if err != nil {
+		return nil, err
+	}
+
+	productCache.Set(store, productID, product)
+	return product, nil
 }
 
 func handleBatchProducts(w http.ResponseWriter, r *http.Request, store string) {
@@ -230,7 +271,7 @@ func handleBatchProducts(w http.ResponseWriter, r *http.Request, store string) {
 		}
 
 		scraperSemaphore <- struct{}{}
-		product, err := scrapeProduct(store, productID)
+		product, err := getProduct(store, productID)
 		<-scraperSemaphore
 
 		if err != nil {
