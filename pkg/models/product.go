@@ -2,6 +2,16 @@ package models
 
 import "time"
 
+type Variant struct {
+	Name          string  `json:"name"`
+	Price         float64 `json:"price"`
+	OldPrice      float64 `json:"old_price,omitempty"`
+	IsDiscounted  bool    `json:"is_discounted"`
+	DiscountLabel string  `json:"discount_label,omitempty"`
+	PriceDetails  string  `json:"price_details,omitempty"`
+	URL           string  `json:"url,omitempty"`
+}
+
 type Product struct {
 	Source            string    `json:"source"`
 	ID                string    `json:"id"`
@@ -18,4 +28,5 @@ type Product struct {
 	PriceDetails      string    `json:"price_details,omitempty"`
 	Rating            float64   `json:"rating,omitempty"`
 	ReviewCount       int       `json:"review_count,omitempty"`
+	Variants          []Variant `json:"variants,omitempty"`
 }

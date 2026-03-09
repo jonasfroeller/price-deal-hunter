@@ -1,8 +1,8 @@
 openapi: 3.0.0
 info:
   title: Price Deal Hunter API
-  description: API for retrieving product information from various grocery stores (Spar, Billa, Lidl, Hofer, Apotheke, Pharmeo)
-  version: 0.10.0
+  description: API for retrieving product information from various grocery stores (Spar, Billa, Lidl, Hofer, Apotheke, Pharmeo, Shop Apotheke)
+  version: 0.11.0
   contact:
     name: Price Deal Hunter
 servers:
@@ -20,7 +20,7 @@ paths:
         - name: store
           in: path
           required: true
-          description: The store name (spar, billa, lidl, hofer, apotheke, or pharmeo)
+          description: The store name (spar, billa, lidl, hofer, apotheke, pharmeo, or shop-apotheke)
           schema:
             type: string
             enum:
@@ -30,6 +30,7 @@ paths:
               - hofer
               - apotheke
               - pharmeo
+              - shop-apotheke
         - name: id
           in: path
           required: true
@@ -119,7 +120,7 @@ paths:
                 type: "about:blank"
                 title: "Bad Request"
                 status: 400
-                detail: "Store not supported. Available: spar, billa, lidl, hofer, apotheke, pharmeo"
+                detail: "Store not supported. Available: spar, billa, lidl, hofer, apotheke, pharmeo, shop-apotheke"
                 instance: "/stores/unsupported/products/123"
         '404':
           description: Product not found
@@ -150,7 +151,7 @@ paths:
         - name: store
           in: path
           required: true
-          description: The store name (spar, billa, lidl, hofer, apotheke, or pharmeo)
+          description: The store name (spar, billa, lidl, hofer, apotheke, pharmeo, or shop-apotheke)
           schema:
             type: string
             enum:
@@ -160,6 +161,7 @@ paths:
               - hofer
               - apotheke
               - pharmeo
+              - shop-apotheke
       requestBody:
         required: true
         content:
@@ -229,7 +231,7 @@ components:
       properties:
         source:
           type: string
-          description: The grocery store source (SPAR, BILLA, LIDL, HOFER, APOTHEKE_AT, PHARMEO_AT)
+          description: The grocery store source (SPAR, BILLA, LIDL, HOFER, APOTHEKE_AT, PHARMEO_AT, SHOP_APOTHEKE_AT)
         id:
           type: string
           description: The product ID
