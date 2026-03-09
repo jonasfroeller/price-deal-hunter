@@ -1,16 +1,19 @@
 package apotheke
 
 import (
-	"crypto/tls"
+	"context"
+	"fmt"
 	"hunter-base/pkg/models"
 	"log"
-	"net/http"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/gocolly/colly/v2"
+	cu "github.com/Davincible/chromedp-undetected"
+	"github.com/PuerkitoBio/goquery"
+	"github.com/chromedp/chromedp"
 )
 
 const (
@@ -19,44 +22,12 @@ const (
 )
 
 type Scraper struct {
-	Collector *colly.Collector
-	BaseURL   string
+	BaseURL string
 }
 
 func NewScraper() *Scraper {
-	c := colly.NewCollector(
-		colly.AllowedDomains("www.apotheke.at"),
-		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
-		colly.IgnoreRobotsTxt(),
-	)
-	c.WithTransport(&http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-			MinVersion:         tls.VersionTLS12,
-		},
-		ResponseHeaderTimeout: 30 * time.Second,
-	})
-	c.SetRequestTimeout(30 * time.Second)
-	c.OnRequest(func(r *colly.Request) {
-		r.Headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-		r.Headers.Set("Accept-Language", "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7")
-		r.Headers.Set("Cache-Control", "no-cache")
-		r.Headers.Set("Connection", "keep-alive")
-		r.Headers.Set("Pragma", "no-cache")
-		r.Headers.Set("Sec-Fetch-Dest", "document")
-		r.Headers.Set("Sec-Fetch-Mode", "navigate")
-		r.Headers.Set("Sec-Fetch-Site", "none")
-		r.Headers.Set("Sec-Fetch-User", "?1")
-		r.Headers.Set("Upgrade-Insecure-Requests", "1")
-	})
-
-	c.OnError(func(r *colly.Response, err error) {
-		log.Printf("Request URL: %s failed with response: %v\nError: %v\nBody: %q", r.Request.URL, r.StatusCode, err, string(r.Body))
-	})
-
 	return &Scraper{
-		Collector: c,
-		BaseURL:   BaseURL,
+		BaseURL: BaseURL,
 	}
 }
 
@@ -71,143 +42,202 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 
 	searchURL := product.URL
 
-	s.Collector.OnHTML(".product-card-list", func(e *colly.HTMLElement) {
-		// Only take the first product found as it should be the direct hit for the PZN
-		if product.Name != "" {
-			return
-		}
+	opts := []cu.Option{
+		cu.WithTimeout(120 * time.Second),
+	}
+	if runtime.GOOS == "linux" {
+		opts = append(opts, cu.WithHeadless())
+	}
 
-		name := e.ChildText(".product-card__title a")
-		if name == "" {
-			return
-		}
+	ctx, cancel, err := cu.New(cu.NewConfig(opts...))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create undetected browser: %w", err)
+	}
+	defer cancel()
 
-		// apotheke.at URL format is generally https://www.apotheke.at...
-		productURL := e.ChildAttr(".product-card__title a", "href")
-		if productURL != "" {
-			if strings.HasPrefix(productURL, "http") {
-				product.URL = productURL
-			} else if strings.HasPrefix(productURL, "/") {
-				product.URL = "https://www.apotheke.at" + productURL
+	fetchPage := func(targetURL string) (*goquery.Document, string, error) {
+		log.Printf("Navigating to %s", targetURL)
+		var html, finalURL string
+		err := chromedp.Run(ctx,
+			chromedp.Navigate(targetURL),
+			chromedp.ActionFunc(func(execCtx context.Context) error {
+				ticker := time.NewTicker(500 * time.Millisecond)
+				defer ticker.Stop()
+				cfPolls := 0
+				for {
+					select {
+					case <-execCtx.Done():
+						if cfPolls > 0 {
+							return fmt.Errorf("cloudflare challenge did not resolve after %d polls", cfPolls)
+						}
+						return execCtx.Err()
+					case <-ticker.C:
+						var isCF bool
+						if err := chromedp.Evaluate(`document.title.includes("Just a moment") || document.title.includes("Cloudflare") || !!document.querySelector('.cf-browser-verification') || !!document.querySelector('#challenge-running') || (document.body && (document.body.innerText.includes("Cloudflare") || document.body.innerText.includes("Ray ID")))`, &isCF).Do(execCtx); err == nil && isCF {
+							if cfPolls == 0 {
+								log.Println("Cloudflare challenge detected, waiting for auto-resolution...")
+							}
+							cfPolls++
+							continue
+						}
+						if cfPolls > 0 {
+							log.Printf("Cloudflare challenge resolved after %d polls", cfPolls)
+						}
+						var hasResults bool
+						if err := chromedp.Evaluate(`!!(document.querySelector(".search-result-header") || document.querySelector("#product-detail-wrapper") || document.querySelector(".product-card-list"))`, &hasResults).Do(execCtx); err == nil && hasResults {
+							return nil
+						}
+					}
+				}
+			}),
+			chromedp.Sleep(2*time.Second),
+			chromedp.Evaluate(`window.location.href`, &finalURL),
+			chromedp.OuterHTML(`html`, &html, chromedp.ByQuery),
+		)
+		if err != nil {
+			return nil, "", err
+		}
+		doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to parse HTML: %w", err)
+		}
+		return doc, finalURL, nil
+	}
+
+	parseSearchCard := func(doc *goquery.Document) string {
+		var foundLink string
+		doc.Find(".product-card-list .product-card").Each(func(i int, sel *goquery.Selection) {
+			if product.Name != "" {
+				return
 			}
-		}
 
-		product.Name = strings.TrimSpace(name)
-
-		// Regular Price
-		priceStr := e.ChildText(".product-card__price--red [aria-hidden='true'] span:first-child")
-		if priceStr == "" {
-			// Sometime price might not be red if not discounted or different layout
-			priceStr = e.ChildText(".product-card__price div[aria-hidden='true'] span:first-child")
-		}
-
-		if priceStr != "" {
-			priceStr = strings.TrimSpace(priceStr)
-			priceStr = strings.ReplaceAll(priceStr, ",", ".")
-			if val, err := strconv.ParseFloat(priceStr, 64); err == nil {
-				product.Price = val
+			name := sel.Find(".product-card__title a").Text()
+			if name == "" {
+				return
 			}
-		}
 
-		// Old/Strikethrough Price (if discounted)
-		oldPriceStr := e.ChildText(".product-card__price--cross-out")
-		if oldPriceStr != "" {
-			oldPriceStr = strings.ReplaceAll(oldPriceStr, "€", "")
-			oldPriceStr = strings.ReplaceAll(oldPriceStr, "*", "")
-			oldPriceStr = strings.TrimSpace(oldPriceStr)
-			oldPriceStr = strings.ReplaceAll(oldPriceStr, ",", ".")
-			if val, err := strconv.ParseFloat(oldPriceStr, 64); err == nil {
-				product.OldPrice = val
+			productURL, _ := sel.Find(".product-card__title a").Attr("href")
+			if productURL != "" {
+				if strings.HasPrefix(productURL, "http") {
+					product.URL = productURL
+				} else if strings.HasPrefix(productURL, "/") {
+					product.URL = "https://www.apotheke.at" + productURL
+				}
+				foundLink = product.URL
+			}
+
+			product.Name = strings.TrimSpace(name)
+
+			// Regular Price
+			priceStr := sel.Find(".product-card__price--red [aria-hidden='true'] span:first-child").Text()
+			if priceStr == "" {
+				priceStr = sel.Find(".product-card__price div[aria-hidden='true'] span:first-child").Text()
+			}
+			if priceStr != "" {
+				priceStr = strings.TrimSpace(priceStr)
+				priceStr = strings.ReplaceAll(priceStr, ",", ".")
+				if val, err := strconv.ParseFloat(priceStr, 64); err == nil {
+					product.Price = val
+				}
+			}
+
+			// Old/Strikethrough Price
+			oldPriceStr := sel.Find(".product-card__price--cross-out").Text()
+			if oldPriceStr != "" {
+				oldPriceStr = strings.ReplaceAll(oldPriceStr, "€", "")
+				oldPriceStr = strings.ReplaceAll(oldPriceStr, "*", "")
+				oldPriceStr = strings.TrimSpace(oldPriceStr)
+				oldPriceStr = strings.ReplaceAll(oldPriceStr, ",", ".")
+				if val, err := strconv.ParseFloat(oldPriceStr, 64); err == nil {
+					product.OldPrice = val
+					product.IsDiscounted = true
+				}
+			}
+
+			// Availability
+			availabilityText := sel.Find(".availability span").Text()
+			if availabilityText != "" {
+				availLower := strings.ToLower(strings.TrimSpace(availabilityText))
+				product.AvailabilityLabel = strings.TrimSpace(availabilityText)
+
+				if strings.Contains(availLower, "sofort lieferbar") || strings.Contains(availLower, "auf lager") {
+					product.IsAvailable = true
+				} else if strings.Contains(availLower, "zur zeit nicht lieferbar") {
+					product.IsAvailable = false
+				} else if strings.Contains(availLower, "sofortige verfügbarkeitsprüfung") {
+					product.IsAvailable = false
+				} else if strings.Contains(availLower, "lieferbar") {
+					product.IsAvailable = true
+				}
+			}
+
+			// apoPunkte / Discount Label extensions
+			apoPunkteText := sel.Find(".pdp-buy-box__bonus-text, .product-card__bonus-text").Text()
+			if apoPunkteText == "" {
+				sel.Find(".product-card__info-details div, .product-card__highlight-text li, span").EachWithBreak(func(_ int, el *goquery.Selection) bool {
+					text := strings.TrimSpace(el.Text())
+					if strings.Contains(strings.ToLower(text), "apopunkte") {
+						apoPunkteText = text
+						return false
+					}
+					return true
+				})
+			}
+
+			if apoPunkteText != "" {
+				apoPunkteText = strings.TrimSpace(apoPunkteText)
+				if product.DiscountLabel != "" {
+					product.DiscountLabel += " | " + apoPunkteText
+				} else {
+					product.DiscountLabel = apoPunkteText
+				}
 				product.IsDiscounted = true
 			}
-		}
 
-		// Availability
-		availabilityText := e.ChildText(".availability span")
-		if availabilityText != "" {
-			availLower := strings.ToLower(strings.TrimSpace(availabilityText))
-			product.AvailabilityLabel = strings.TrimSpace(availabilityText)
-
-			if strings.Contains(availLower, "sofort lieferbar") || strings.Contains(availLower, "auf lager") {
-				product.IsAvailable = true
-			} else if strings.Contains(availLower, "zur zeit nicht lieferbar") {
-				product.IsAvailable = false
-			} else if strings.Contains(availLower, "sofortige verfügbarkeitsprüfung") { // Usually implies it's not strictly guaranteed "in stock" right now.
-				product.IsAvailable = false
-			} else if strings.Contains(availLower, "lieferbar") {
-				// Catch-all for other "lieferbar" phrases that don't match "nicht lieferbar"
-				product.IsAvailable = true
+			// Price Details (Unit price)
+			unitDetails := sel.Find(".product-card__unit-details").Text()
+			if unitDetails != "" {
+				product.PriceDetails = strings.TrimSpace(unitDetails)
 			}
-		}
 
-		// apoPunkte / Discount Label extensions
-		apoPunkteText := e.ChildText(".pdp-buy-box__bonus-text, .product-card__bonus-text")
-
-		if apoPunkteText == "" {
-			// Fallback check: scan the whole search list card if the specific class isn't known
-			e.ForEachWithBreak(".product-card__info-details div, .product-card__highlight-text li, span", func(_ int, el *colly.HTMLElement) bool {
-				text := strings.TrimSpace(el.Text)
-				if strings.Contains(strings.ToLower(text), "apopunkte") {
-					apoPunkteText = text
-					return false
-				}
-				return true
-			})
-		}
-
-		if apoPunkteText != "" {
-			apoPunkteText = strings.TrimSpace(apoPunkteText)
-			// Sometimes it might contain other text, let's just make sure we extract up to "apoPunkte" if it's too long
-			if product.DiscountLabel != "" {
-				product.DiscountLabel += " | " + apoPunkteText
-			} else {
-				product.DiscountLabel = apoPunkteText
-			}
-			product.IsDiscounted = true
-		}
-
-		// Price Details (Unit price)
-		unitDetails := e.ChildText(".product-card__unit-details")
-		if unitDetails != "" {
-			product.PriceDetails = strings.TrimSpace(unitDetails)
-		}
-
-		// Rating
-		ratingStyle := e.ChildAttr(".product-card__rating-foreground", "style")
-		if ratingStyle != "" {
-			re := regexp.MustCompile(`width:\s*([\d.]+)%`)
-			matches := re.FindStringSubmatch(ratingStyle)
-			if len(matches) > 1 {
-				if percent, err := strconv.ParseFloat(matches[1], 64); err == nil {
-					product.Rating = (percent / 100.0) * 5.0
+			// Rating
+			ratingStyle, _ := sel.Find(".product-card__rating-foreground").Attr("style")
+			if ratingStyle != "" {
+				re := regexp.MustCompile(`width:\s*([\d.]+)%`)
+				matches := re.FindStringSubmatch(ratingStyle)
+				if len(matches) > 1 {
+					if percent, err := strconv.ParseFloat(matches[1], 64); err == nil {
+						product.Rating = (percent / 100.0) * 5.0
+					}
 				}
 			}
-		}
 
-		// Review Count
-		reviewCountStr := e.ChildText(".product-card__review-count")
-		if reviewCountStr != "" {
-			reviewCountStr = strings.Trim(strings.TrimSpace(reviewCountStr), "()")
-			if count, err := strconv.Atoi(reviewCountStr); err == nil {
-				product.ReviewCount = count
+			// Review Count
+			reviewCountStr := sel.Find(".product-card__review-count").Text()
+			if reviewCountStr != "" {
+				reviewCountStr = strings.Trim(strings.TrimSpace(reviewCountStr), "()")
+				if count, err := strconv.Atoi(reviewCountStr); err == nil {
+					product.ReviewCount = count
+				}
 			}
-		}
-	})
+		})
+		return foundLink
+	}
 
-	s.Collector.OnHTML("#product-detail-wrapper", func(e *colly.HTMLElement) {
-		// If product is already populated from a search list or another hook, skip it.
-		if product.Name != "" {
+	parsePDP := func(doc *goquery.Document) {
+		sel := doc.Find("#product-detail-wrapper")
+		if sel.Length() == 0 {
 			return
 		}
 
-		name := e.ChildText("h1#pdp-product-title")
+		name := sel.Find("h1#pdp-product-title").Text()
 		if name == "" {
 			return
 		}
 		product.Name = strings.TrimSpace(name)
 
 		// Current Price
-		priceStr := e.ChildText(".product-detail-current-price")
+		priceStr := sel.Find(".product-detail-current-price").Text()
 		if priceStr != "" {
 			priceStr = strings.ReplaceAll(priceStr, "€", "")
 			priceStr = strings.ReplaceAll(priceStr, "*", "")
@@ -219,7 +249,7 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 		}
 
 		// Old Price
-		oldPriceStr := e.ChildText(".product-detail-original-price")
+		oldPriceStr := sel.Find(".product-detail-original-price").Text()
 		if oldPriceStr != "" {
 			oldPriceStr = strings.ReplaceAll(oldPriceStr, "€", "")
 			oldPriceStr = strings.ReplaceAll(oldPriceStr, "*", "")
@@ -232,9 +262,8 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 		}
 
 		// Availability
-		availabilityText := e.ChildText(".pdp-buy-box__status-text")
+		availabilityText := sel.Find(".pdp-buy-box__status-text").Text()
 		if availabilityText != "" {
-			// clean up internal text splitting (e.g. "zur Zeit nicht lieferbar" in nested spans)
 			availClean := strings.Join(strings.Fields(availabilityText), " ")
 			availLower := strings.ToLower(availClean)
 			product.AvailabilityLabel = availClean
@@ -251,19 +280,22 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 		}
 
 		// apoPunkte / Discount Label
-		apoPunkteText := e.ChildText(".pdp-buy-box__bonus-text")
+		apoPunkteText := sel.Find(".pdp-buy-box__bonus-text").Text()
 		if apoPunkteText != "" {
 			apoPunkteText = strings.TrimSpace(apoPunkteText)
-			if product.DiscountLabel != "" {
-				product.DiscountLabel += " | " + apoPunkteText
-			} else {
-				product.DiscountLabel = apoPunkteText
+			// Avoid double-adding if we already hit it via search list
+			if !strings.Contains(product.DiscountLabel, apoPunkteText) {
+				if product.DiscountLabel != "" {
+					product.DiscountLabel += " | " + apoPunkteText
+				} else {
+					product.DiscountLabel = apoPunkteText
+				}
+				product.IsDiscounted = true
 			}
-			product.IsDiscounted = true
 		}
 
 		// Rating & Reviews
-		scoreStr := e.ChildText(".pdp-reviews__score")
+		scoreStr := sel.Find(".pdp-reviews__score").Text()
 		if scoreStr != "" {
 			scoreStr = strings.ReplaceAll(scoreStr, ",", ".")
 			if val, err := strconv.ParseFloat(strings.TrimSpace(scoreStr), 64); err == nil {
@@ -271,9 +303,9 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 			}
 		}
 
-		reviewCountStr := e.ChildText(".pdp-reviews__count")
+		reviewCountStr := sel.Find(".pdp-reviews__count").Text()
 		if reviewCountStr == "" {
-			reviewCountStr = e.ChildText(".pdp-buy-box__rating-count")
+			reviewCountStr = sel.Find(".pdp-buy-box__rating-count").Text()
 		}
 		if reviewCountStr != "" {
 			re := regexp.MustCompile(`\d+`)
@@ -284,18 +316,30 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 				}
 			}
 		}
-	})
+	}
 
-	// Sometimes the search page doesn't have all details.
-	s.Collector.OnHTML(".product-card__title a[href]", func(e *colly.HTMLElement) {
-		link := e.Attr("href")
-		e.Request.Visit(link)
-	})
-
-	log.Printf("Navigating to search URL %s", searchURL)
-	err := s.Collector.Visit(searchURL)
+	searchDoc, _, err := fetchPage(searchURL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to fetch search page: %w", err)
+	}
+
+	// Try parsing it as a search result first
+	foundLink := parseSearchCard(searchDoc)
+
+	// If parsing search results yielded a product link different from our initial searchURL,
+	// fetch that specific product page to gather all possible details
+	if product.Name != "" && foundLink != "" && foundLink != searchURL {
+		pdpDoc, _, pdpErr := fetchPage(foundLink)
+		if pdpErr == nil {
+			parsePDP(pdpDoc)
+		} else {
+			log.Printf("Failed to fetch PDP %s: %v", foundLink, pdpErr)
+		}
+	} else {
+		// If it's not a list, maybe it redirected directly to a PDP
+		if product.Name == "" {
+			parsePDP(searchDoc)
+		}
 	}
 
 	if product.Name == "" {
