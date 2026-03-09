@@ -84,7 +84,8 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch product page: %w", err)
+			log.Printf("Failed at %s: %v, trying next", candidateURL, err)
+			continue
 		}
 		return buildProduct(html, finalURL, product)
 	}
@@ -208,7 +209,7 @@ func waitForProductOrError(execCtx context.Context) error {
 
 			var is404 bool
 			if err := chromedp.Evaluate(
-				`document.title.includes("404") || document.title.includes("nicht gefunden") || !!document.querySelector('[data-qa-id="error-page"]')`,
+				`document.title.includes("404") || document.title.includes("nicht gefunden") || !!document.querySelector('[data-qa-id="error-page"]') || !!document.querySelector('h1')?.textContent?.includes('Entschuldigung')`,
 				&is404,
 			).Do(execCtx); err == nil && is404 {
 				return errNotFound
