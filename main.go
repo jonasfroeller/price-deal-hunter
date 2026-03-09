@@ -11,6 +11,7 @@ import (
 	"hunter-base/pkg/scrapers/billa"
 	"hunter-base/pkg/scrapers/hofer"
 	"hunter-base/pkg/scrapers/lidl"
+	"hunter-base/pkg/scrapers/pharmeo"
 	"hunter-base/pkg/scrapers/spar"
 	"log"
 	"net"
@@ -146,8 +147,8 @@ func productHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if store != "spar" && store != "billa" && store != "lidl" && store != "hofer" && store != "apotheke" {
-		api.WriteBadRequest(w, "Store not supported. Available: spar, billa, lidl, hofer, apotheke", r.URL.Path)
+	if store != "spar" && store != "billa" && store != "lidl" && store != "hofer" && store != "apotheke" && store != "pharmeo" {
+		api.WriteBadRequest(w, "Store not supported. Available: spar, billa, lidl, hofer, apotheke, pharmeo", r.URL.Path)
 		return
 	}
 
@@ -212,14 +213,18 @@ func scrapeProduct(store, productID string) (*models.Product, error) {
 	case "apotheke":
 		scraper := apotheke.NewScraper()
 		return scraper.Scrape(productID)
+	case "pharmeo":
+		scraper := pharmeo.NewScraper()
+		return scraper.Scrape(productID)
 	default:
-		return nil, fmt.Errorf("store not supported. Available: spar, billa, lidl, hofer, apotheke")
+		return nil, fmt.Errorf("store not supported. Available: spar, billa, lidl, hofer, apotheke, pharmeo")
 	}
 }
 
 func getProduct(store, productID string) (*models.Product, error) {
 	if cached, ok := productCache.Get(store, productID); ok {
 		logger.Dedup("Cache hit for %s/%s", store, productID)
+		go revalidateCache(store, productID)
 		return cached, nil
 	}
 
@@ -232,9 +237,23 @@ func getProduct(store, productID string) (*models.Product, error) {
 	return product, nil
 }
 
+func revalidateCache(store, productID string) {
+	scraperSemaphore <- struct{}{}
+	defer func() { <-scraperSemaphore }()
+
+	product, err := scrapeProduct(store, productID)
+	if err != nil {
+		log.Printf("Background revalidation failed for %s/%s: %v", store, productID, err)
+		return
+	}
+
+	productCache.Set(store, productID, product)
+	logger.Dedup("Cache revalidated for %s/%s", store, productID)
+}
+
 func handleBatchProducts(w http.ResponseWriter, r *http.Request, store string) {
-	if store != "spar" && store != "billa" && store != "lidl" && store != "hofer" && store != "apotheke" {
-		api.WriteBadRequest(w, "Store not supported. Available: spar, billa, lidl, hofer, apotheke", r.URL.Path)
+	if store != "spar" && store != "billa" && store != "lidl" && store != "hofer" && store != "apotheke" && store != "pharmeo" {
+		api.WriteBadRequest(w, "Store not supported. Available: spar, billa, lidl, hofer, apotheke, pharmeo", r.URL.Path)
 		return
 	}
 

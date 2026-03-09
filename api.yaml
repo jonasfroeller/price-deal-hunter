@@ -1,8 +1,8 @@
 openapi: 3.0.0
 info:
   title: Price Deal Hunter API
-  description: API for retrieving product information from various grocery stores (Spar, Billa, Lidl, Hofer, Apotheke)
-  version: 0.8.2
+  description: API for retrieving product information from various grocery stores (Spar, Billa, Lidl, Hofer, Apotheke, Pharmeo)
+  version: 0.10.0
   contact:
     name: Price Deal Hunter
 servers:
@@ -20,7 +20,7 @@ paths:
         - name: store
           in: path
           required: true
-          description: The store name (spar, billa, lidl, hofer, or apotheke)
+          description: The store name (spar, billa, lidl, hofer, apotheke, or pharmeo)
           schema:
             type: string
             enum:
@@ -29,6 +29,7 @@ paths:
               - lidl
               - hofer
               - apotheke
+              - pharmeo
         - name: id
           in: path
           required: true
@@ -95,6 +96,19 @@ paths:
                     is_available: true
                     is_discounted: false
                     availability_label: "Available"
+                PHARMEO_AT:
+                  summary: PHARMEO_AT Example
+                  value:
+                    source: "PHARMEO_AT"
+                    id: "15999682"
+                    name: "Kijimea® Reizdarm PRO Kapseln, 84 St"
+                    price: 89.89
+                    currency: "EUR"
+                    url: "https://www.pharmeo.at/15999682-kijimea-reizdarm-pro-kapseln.html"
+                    scraped_at: "2026-03-09T15:00:00.000000+01:00"
+                    is_available: true
+                    is_discounted: false
+                    price_details: "1,07 €/1 St | inkl. MwSt. inkl. Versand"
         '400':
           description: Bad request - Invalid store or product ID
           content:
@@ -105,7 +119,7 @@ paths:
                 type: "about:blank"
                 title: "Bad Request"
                 status: 400
-                detail: "Store not supported. Available: spar, billa, lidl, hofer, apotheke"
+                detail: "Store not supported. Available: spar, billa, lidl, hofer, apotheke, pharmeo"
                 instance: "/stores/unsupported/products/123"
         '404':
           description: Product not found
@@ -136,7 +150,7 @@ paths:
         - name: store
           in: path
           required: true
-          description: The store name (spar, billa, lidl, hofer, or apotheke)
+          description: The store name (spar, billa, lidl, hofer, apotheke, or pharmeo)
           schema:
             type: string
             enum:
@@ -145,6 +159,7 @@ paths:
               - lidl
               - hofer
               - apotheke
+              - pharmeo
       requestBody:
         required: true
         content:
@@ -214,7 +229,7 @@ components:
       properties:
         source:
           type: string
-          description: The grocery store source (SPAR, BILLA, LIDL, HOFER, APOTHEKE_AT)
+          description: The grocery store source (SPAR, BILLA, LIDL, HOFER, APOTHEKE_AT, PHARMEO_AT)
         id:
           type: string
           description: The product ID
