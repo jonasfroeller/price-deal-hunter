@@ -16,4 +16,6 @@ type Product struct {
 	DiscountLabel     string    `json:"discount_label,omitempty"`
 	AvailabilityLabel string    `json:"availability_label,omitempty"`
 	PriceDetails      string    `json:"price_details,omitempty"`
+	Rating            float64   `json:"rating,omitempty"`
+	ReviewCount       int       `json:"review_count,omitempty"`
 }

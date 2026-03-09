@@ -1,8 +1,8 @@
 openapi: 3.0.0
 info:
   title: Price Deal Hunter API
-  description: API for retrieving product information from various grocery stores (Spar, Billa, Lidl, Hofer)
-  version: 0.7.3
+  description: API for retrieving product information from various grocery stores (Spar, Billa, Lidl, Hofer, Apotheke)
+  version: 0.8.0
   contact:
     name: Price Deal Hunter
 servers:
@@ -20,7 +20,7 @@ paths:
         - name: store
           in: path
           required: true
-          description: The store name (spar, billa, lidl, or hofer)
+          description: The store name (spar, billa, lidl, hofer, or apotheke)
           schema:
             type: string
             enum:
@@ -28,6 +28,7 @@ paths:
               - billa
               - lidl
               - hofer
+              - apotheke
         - name: id
           in: path
           required: true
@@ -104,7 +105,7 @@ paths:
                 type: "about:blank"
                 title: "Bad Request"
                 status: 400
-                detail: "Store not supported. Available: spar, billa, lidl, hofer"
+                detail: "Store not supported. Available: spar, billa, lidl, hofer, apotheke"
                 instance: "/stores/unsupported/products/123"
         '404':
           description: Product not found
@@ -135,7 +136,7 @@ paths:
         - name: store
           in: path
           required: true
-          description: The store name (spar, billa, lidl, or hofer)
+          description: The store name (spar, billa, lidl, hofer, or apotheke)
           schema:
             type: string
             enum:
@@ -143,6 +144,7 @@ paths:
               - billa
               - lidl
               - hofer
+              - apotheke
       requestBody:
         required: true
         content:
@@ -212,7 +214,7 @@ components:
       properties:
         source:
           type: string
-          description: The grocery store source (SPAR, BILLA, LIDL, HOFER)
+          description: The grocery store source (SPAR, BILLA, LIDL, HOFER, APOTHEKE_AT)
         id:
           type: string
           description: The product ID
@@ -252,6 +254,13 @@ components:
         price_details:
           type: string
           description: Additional price details
+        rating:
+          type: number
+          format: float
+          description: The product rating (e.g. 4.5)
+        review_count:
+          type: integer
+          description: The number of reviews for the product
       required:
         - source
         - id

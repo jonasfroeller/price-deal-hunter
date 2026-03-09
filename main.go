@@ -7,6 +7,7 @@ import (
 	"hunter-base/pkg/cache"
 	"hunter-base/pkg/logger"
 	"hunter-base/pkg/models"
+	"hunter-base/pkg/scrapers/apotheke"
 	"hunter-base/pkg/scrapers/billa"
 	"hunter-base/pkg/scrapers/hofer"
 	"hunter-base/pkg/scrapers/lidl"
@@ -145,8 +146,8 @@ func productHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if store != "spar" && store != "billa" && store != "lidl" && store != "hofer" {
-		api.WriteBadRequest(w, "Store not supported. Available: spar, billa, lidl, hofer", r.URL.Path)
+	if store != "spar" && store != "billa" && store != "lidl" && store != "hofer" && store != "apotheke" {
+		api.WriteBadRequest(w, "Store not supported. Available: spar, billa, lidl, hofer, apotheke", r.URL.Path)
 		return
 	}
 
@@ -208,8 +209,11 @@ func scrapeProduct(store, productID string) (*models.Product, error) {
 	case "hofer":
 		scraper := hofer.NewScraper()
 		return scraper.Scrape(productID)
+	case "apotheke":
+		scraper := apotheke.NewScraper()
+		return scraper.Scrape(productID)
 	default:
-		return nil, fmt.Errorf("store not supported. Available: spar, billa, lidl, hofer")
+		return nil, fmt.Errorf("store not supported. Available: spar, billa, lidl, hofer, apotheke")
 	}
 }
 
@@ -229,8 +233,8 @@ func getProduct(store, productID string) (*models.Product, error) {
 }
 
 func handleBatchProducts(w http.ResponseWriter, r *http.Request, store string) {
-	if store != "spar" && store != "billa" && store != "lidl" && store != "hofer" {
-		api.WriteBadRequest(w, "Store not supported. Available: spar, billa, lidl, hofer", r.URL.Path)
+	if store != "spar" && store != "billa" && store != "lidl" && store != "hofer" && store != "apotheke" {
+		api.WriteBadRequest(w, "Store not supported. Available: spar, billa, lidl, hofer, apotheke", r.URL.Path)
 		return
 	}
 
