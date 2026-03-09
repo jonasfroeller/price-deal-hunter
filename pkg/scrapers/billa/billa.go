@@ -2,9 +2,9 @@ package billa
 
 import (
 	"hunter-base/pkg/models"
+	"hunter-base/pkg/scrapers/common"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -35,13 +35,7 @@ func NewScraper() *Scraper {
 }
 
 func (s *Scraper) Scrape(productID string) (*models.Product, error) {
-	product := &models.Product{
-		Source:    Source,
-		ID:        productID,
-		URL:       BaseURL + productID,
-		Currency:  "EUR",
-		ScrapedAt: time.Now(),
-	}
+	product := common.NewProduct(Source, productID, BaseURL+productID)
 
 	s.Collector.OnHTML("h1", func(e *colly.HTMLElement) {
 		product.Name = strings.TrimSpace(e.Text)
@@ -49,12 +43,7 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 	s.Collector.OnHTML(".ws-product-detail-main__price", func(e *colly.HTMLElement) {
 		priceStr := e.ChildText(".ws-product-price-type__value")
 		if priceStr != "" {
-			priceStr = strings.TrimSpace(priceStr)
-			priceStr = strings.ReplaceAll(priceStr, "€", "")
-			priceStr = strings.ReplaceAll(priceStr, ",", ".")
-			priceStr = strings.TrimSpace(priceStr)
-
-			if val, err := strconv.ParseFloat(priceStr, 64); err == nil {
+			if val := common.ParsePrice(priceStr); val > 0 {
 				product.Price = val
 				product.IsAvailable = true
 			}
@@ -62,12 +51,7 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 
 		oldPriceStr := e.ChildText(".ws-product-price-strike")
 		if oldPriceStr != "" {
-			oldPriceStr = strings.TrimSpace(oldPriceStr)
-			oldPriceStr = strings.ReplaceAll(oldPriceStr, "€", "")
-			oldPriceStr = strings.ReplaceAll(oldPriceStr, ",", ".")
-			oldPriceStr = strings.TrimSpace(oldPriceStr)
-
-			if val, err := strconv.ParseFloat(oldPriceStr, 64); err == nil {
+			if val := common.ParsePrice(oldPriceStr); val > 0 {
 				product.OldPrice = val
 				product.IsDiscounted = true
 			}

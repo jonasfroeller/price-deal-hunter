@@ -4,14 +4,13 @@ import (
 	"context"
 	"fmt"
 	"hunter-base/pkg/models"
+	"hunter-base/pkg/scrapers/common"
 	"log"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
-	cu "github.com/Davincible/chromedp-undetected"
 	"github.com/chromedp/chromedp"
 )
 
@@ -26,25 +25,20 @@ func NewScraper() *Scraper {
 	return &Scraper{}
 }
 
+func sparReadyCheck(ctx context.Context) bool {
+	var hasHeading bool
+	if err := chromedp.Evaluate(`!!(document.querySelector("h1.heading__title") || document.querySelector("h1[data-tosca='pdp-heading']"))`, &hasHeading).Do(ctx); err == nil && hasHeading {
+		return true
+	}
+	return false
+}
+
 func (s *Scraper) Scrape(productID string) (*models.Product, error) {
-	product := &models.Product{
-		Source:    Source,
-		ID:        productID,
-		URL:       BaseURL + productID,
-		Currency:  "EUR",
-		ScrapedAt: time.Now(),
-	}
+	product := common.NewProduct(Source, productID, BaseURL+productID)
 
-	opts := []cu.Option{
-		cu.WithTimeout(120 * time.Second),
-	}
-	if runtime.GOOS == "linux" {
-		opts = append(opts, cu.WithHeadless())
-	}
-
-	ctx, cancel, err := cu.New(cu.NewConfig(opts...))
+	ctx, cancel, err := common.NewUndetectedBrowser(120 * time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create undetected browser: %w", err)
+		return nil, err
 	}
 	defer cancel()
 
@@ -54,36 +48,7 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 
 	err = chromedp.Run(ctx,
 		chromedp.Navigate(product.URL),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			ticker := time.NewTicker(500 * time.Millisecond)
-			defer ticker.Stop()
-			cfPolls := 0
-			for {
-				select {
-				case <-ctx.Done():
-					if cfPolls > 0 {
-						return fmt.Errorf("cloudflare challenge did not resolve after %d polls", cfPolls)
-					}
-					return ctx.Err()
-				case <-ticker.C:
-					var isCF bool
-					if err := chromedp.Evaluate(`document.title.includes("Just a moment") || document.title.includes("Cloudflare") || !!document.querySelector('.cf-browser-verification') || !!document.querySelector('#challenge-running') || (document.body && (document.body.innerText.includes("Cloudflare") || document.body.innerText.includes("Ray ID")))`, &isCF).Do(ctx); err == nil && isCF {
-						if cfPolls == 0 {
-							log.Println("Cloudflare challenge detected, waiting for auto-resolution...")
-						}
-						cfPolls++
-						continue
-					}
-					if cfPolls > 0 {
-						log.Printf("Cloudflare challenge resolved after %d polls", cfPolls)
-					}
-					var hasHeading bool
-					if err := chromedp.Evaluate(`!!(document.querySelector("h1.heading__title") || document.querySelector("h1[data-tosca='pdp-heading']"))`, &hasHeading).Do(ctx); err == nil && hasHeading {
-						return nil
-					}
-				}
-			}
-		}),
+		common.WaitForCloudflare(sparReadyCheck),
 		chromedp.Evaluate(`document.querySelector("h1[data-tosca='pdp-heading']")?.innerText || document.querySelector("h1.heading__title")?.innerText || ""`, &name),
 		chromedp.Evaluate(`document.querySelector(".product-price__price")?.innerText || ""`, &priceStr),
 		chromedp.Evaluate(`document.querySelector(".product-price__price-old")?.innerText || ""`, &oldPriceStr),

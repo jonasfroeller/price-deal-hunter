@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hunter-base/pkg/models"
+	"hunter-base/pkg/scrapers/common"
 	"log"
 	"net/url"
 	"strconv"
@@ -44,13 +45,7 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 	// Hofer URL construction: https://www.hofer.at/de/p.{id}.html
 	productURL := fmt.Sprintf("%s%s.html", BaseURL, productID)
 
-	product := &models.Product{
-		Source:    Source,
-		ID:        productID,
-		URL:       productURL,
-		Currency:  "EUR",
-		ScrapedAt: time.Now(),
-	}
+	product := common.NewProduct(Source, productID, productURL)
 
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"),
@@ -155,23 +150,9 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 	}
 
 	if product.Price == 0 && priceNowStr != "" {
-		// Clean "€ 0,99" => 0.99
-		cleaned := strings.ReplaceAll(priceNowStr, "€", "")
-		cleaned = strings.ReplaceAll(cleaned, ",", ".")
-		cleaned = strings.TrimSpace(cleaned)
-
-		// Remove hidden chars
-		cleaned = strings.Map(func(r rune) rune {
-			if r < 32 || r > 126 {
-				return -1
-			}
-			return r
-		}, cleaned)
-
-		if val, err := strconv.ParseFloat(cleaned, 64); err == nil {
+		if val := common.ParsePrice(priceNowStr); val > 0 {
 			product.Price = val
 
-			// Assume available if price is shown (TODO: improve logic here)
 			if !product.IsAvailable && product.AvailabilityLabel == "" {
 				product.IsAvailable = true
 			}

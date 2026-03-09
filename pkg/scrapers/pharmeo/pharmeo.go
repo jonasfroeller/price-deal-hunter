@@ -4,14 +4,13 @@ import (
 	"context"
 	"fmt"
 	"hunter-base/pkg/models"
+	"hunter-base/pkg/scrapers/common"
 	"log"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
-	cu "github.com/Davincible/chromedp-undetected"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/chromedp/chromedp"
 )
@@ -32,24 +31,11 @@ func NewScraper() *Scraper {
 }
 
 func (s *Scraper) Scrape(productID string) (*models.Product, error) {
-	product := &models.Product{
-		Source:    Source,
-		ID:        productID,
-		URL:       s.BaseURL,
-		Currency:  "EUR",
-		ScrapedAt: time.Now(),
-	}
+	product := common.NewProduct(Source, productID, s.BaseURL)
 
-	opts := []cu.Option{
-		cu.WithTimeout(120 * time.Second),
-	}
-	if runtime.GOOS == "linux" {
-		opts = append(opts, cu.WithHeadless())
-	}
-
-	ctx, cancel, err := cu.New(cu.NewConfig(opts...))
+	ctx, cancel, err := common.NewUndetectedBrowser(120 * time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create undetected browser: %w", err)
+		return nil, err
 	}
 	defer cancel()
 
@@ -79,13 +65,11 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 						return nil
 					}
 
-					// Check if we landed on a search results list instead
 					var hasSearchResults bool
 					if err := chromedp.Evaluate(
 						`!!document.querySelector(".product-list") || !!document.querySelector(".search-result")`,
 						&hasSearchResults,
 					).Do(execCtx); err == nil && hasSearchResults {
-						// Click the first product link
 						var firstLink string
 						if err := chromedp.Evaluate(
 							`(function() { var a = document.querySelector('.product-list a[href], .search-result a[href]'); return a ? a.href : ''; })()`,
@@ -116,9 +100,9 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 	product.URL = finalURL
 	log.Printf("Landed on %s", finalURL)
 
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	doc, err := common.ParseHTML(html)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse HTML: %w", err)
+		return nil, err
 	}
 
 	parseDetailPage(doc, product)
@@ -136,49 +120,36 @@ func parseDetailPage(doc *goquery.Document, product *models.Product) {
 		return
 	}
 
-	// Name
 	name := sel.Find("h1.product-detail-title").Text()
 	if name == "" {
 		return
 	}
 	product.Name = strings.TrimSpace(name)
 
-	// Price
 	priceStr := sel.Find(".sale-price").Text()
 	if priceStr != "" {
-		product.Price = parsePrice(priceStr)
+		product.Price = common.ParsePrice(priceStr)
 	}
 
-	// Reference price (UVP) = old price => marks as discounted
 	refPriceStr := sel.Find(".reference-price-amount").Text()
 	if refPriceStr != "" {
-		if oldPrice := parsePrice(refPriceStr); oldPrice > 0 && oldPrice > product.Price {
+		if oldPrice := common.ParsePrice(refPriceStr); oldPrice > 0 && oldPrice > product.Price {
 			product.OldPrice = oldPrice
 			product.IsDiscounted = true
 		}
 	}
 
-	// Price details (unit price)
 	priceDetails := sel.Find(".product-detail-product-info").Text()
 	if priceDetails != "" {
 		priceDetails = strings.Join(strings.Fields(priceDetails), " ")
-		priceDetails = strings.TrimSpace(priceDetails)
-		product.PriceDetails = priceDetails
+		product.PriceDetails = strings.TrimSpace(priceDetails)
 	}
 
-	// Availability
 	availText := sel.Find(".product-detail-availability").Text()
 	if availText != "" {
-		availClean := strings.Join(strings.Fields(availText), " ")
-		availLower := strings.ToLower(availClean)
-		product.AvailabilityLabel = strings.TrimSpace(availClean)
-
-		if strings.Contains(availLower, "verfügbar") || strings.Contains(availLower, "lieferbar") || strings.Contains(availLower, "auf lager") {
-			product.IsAvailable = true
-		}
+		product.IsAvailable, product.AvailabilityLabel = common.CheckAvailability(availText)
 	}
 
-	// Rating (count filled stars)
 	starItems := sel.Find(".product-rating-summary-stars li")
 	if starItems.Length() > 0 {
 		filledCount := 0
@@ -193,7 +164,6 @@ func parseDetailPage(doc *goquery.Document, product *models.Product) {
 		}
 	}
 
-	// Attributes (PZN, Darreichungsform, etc.)
 	sel.Find(".product-detail-attributes .row .col-6.col-md-5, .product-detail-attributes .row .col-6.col-lg-4").Each(func(i int, attrLabel *goquery.Selection) {
 		labelText := strings.TrimSpace(attrLabel.Find(".product-detail-attributes__attribute").Text())
 		valueEl := attrLabel.Next()
@@ -204,7 +174,6 @@ func parseDetailPage(doc *goquery.Document, product *models.Product) {
 		}
 	})
 
-	// Discount: check if there are variant badges with discount percentages for the active variant
 	activeVariant := sel.Find(".product-variants-item.active")
 	if activeVariant.Length() > 0 {
 		badge := activeVariant.Find(".product-variants-item-badge .badge-content").Text()
@@ -219,13 +188,4 @@ func parseDetailPage(doc *goquery.Document, product *models.Product) {
 			}
 		}
 	}
-}
-
-func parsePrice(raw string) float64 {
-	raw = strings.ReplaceAll(raw, "€", "")
-	raw = strings.ReplaceAll(raw, "*", "")
-	raw = strings.TrimSpace(raw)
-	raw = strings.ReplaceAll(raw, ",", ".")
-	val, _ := strconv.ParseFloat(raw, 64)
-	return val
 }

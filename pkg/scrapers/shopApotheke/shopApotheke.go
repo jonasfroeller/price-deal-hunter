@@ -4,14 +4,13 @@ import (
 	"context"
 	"fmt"
 	"hunter-base/pkg/models"
+	"hunter-base/pkg/scrapers/common"
 	"log"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
-	cu "github.com/Davincible/chromedp-undetected"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/chromedp/chromedp"
 )
@@ -54,28 +53,14 @@ func buildProductURLs(baseURL, pzn string) []string {
 func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 	candidateURLs := buildProductURLs(s.BaseURL, productID)
 
-	product := &models.Product{
-		Source:    Source,
-		ID:        productID,
-		URL:       candidateURLs[0],
-		Currency:  "EUR",
-		ScrapedAt: time.Now(),
-	}
+	product := common.NewProduct(Source, productID, candidateURLs[0])
 
-	opts := []cu.Option{
-		cu.WithTimeout(120 * time.Second),
-	}
-	if runtime.GOOS == "linux" {
-		opts = append(opts, cu.WithHeadless())
-	}
-
-	ctx, cancel, err := cu.New(cu.NewConfig(opts...))
+	ctx, cancel, err := common.NewUndetectedBrowser(120 * time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create undetected browser: %w", err)
+		return nil, err
 	}
 	defer cancel()
 
-	// Try each candidate URL
 	for _, candidateURL := range candidateURLs {
 		log.Printf("Trying URL: %s", candidateURL)
 		html, finalURL, err := navigateToProduct(ctx, candidateURL)
@@ -90,7 +75,6 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 		return buildProduct(html, finalURL, product)
 	}
 
-	// Fallback: search by PZN
 	log.Printf("URL attempts failed, falling back to search for PZN %s", productID)
 	html, finalURL, err := searchForProduct(ctx, s.BaseURL, productID)
 	if err != nil {
@@ -226,9 +210,9 @@ func buildProduct(html, finalURL string, product *models.Product) (*models.Produ
 	product.URL = finalURL
 	log.Printf("Landed on %s", finalURL)
 
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	doc, err := common.ParseHTML(html)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse HTML: %w", err)
+		return nil, err
 	}
 
 	parseDetailPage(doc, product)
@@ -246,20 +230,17 @@ func parseDetailPage(doc *goquery.Document, product *models.Product) {
 		page = doc.Selection
 	}
 
-	// Name
 	name := page.Find(`[data-qa-id="product-title"]`).Text()
 	if name == "" {
 		return
 	}
 	product.Name = strings.TrimSpace(name)
 
-	// Rating (count filled star icons)
 	filledStars := page.Find(`[data-qa-id="active-rating-star"]`).Length()
 	if filledStars > 0 {
 		product.Rating = float64(filledStars)
 	}
 
-	// Review count
 	reviewText := page.Find(`[data-qa-id="number-of-ratings-text"]`).Text()
 	if reviewText != "" {
 		re := regexp.MustCompile(`\d+`)
@@ -270,7 +251,6 @@ func parseDetailPage(doc *goquery.Document, product *models.Product) {
 		}
 	}
 
-	// Parse variants: active variant populates main product, others go to Variants list
 	page.Find(`[data-qa-id="product-variants"]`).Each(func(_ int, li *goquery.Selection) {
 		v := parseVariant(li)
 
@@ -292,50 +272,38 @@ func parseDetailPage(doc *goquery.Document, product *models.Product) {
 		}
 	})
 
-	// Fallback: if no variant was active, grab the first price on the page
 	if product.Price == 0 {
 		priceText := page.Find(`[data-qa-id="product-page-variant-details__display-price"]`).First().Text()
 		if priceText != "" {
-			product.Price = parsePrice(priceText)
+			product.Price = common.ParsePrice(priceText)
 		}
 	}
 
-	// Availability
 	availText := page.Find(`[data-qa-id="product-status-qa-id"]`).Text()
 	if availText != "" {
-		availClean := strings.Join(strings.Fields(availText), " ")
-		availLower := strings.ToLower(availClean)
-		product.AvailabilityLabel = strings.TrimSpace(availClean)
-
-		if strings.Contains(availLower, "verfügbar") || strings.Contains(availLower, "lieferbar") || strings.Contains(availLower, "auf lager") {
-			product.IsAvailable = true
-		}
+		product.IsAvailable, product.AvailabilityLabel = common.CheckAvailability(availText)
 	}
 }
 
 func parseVariant(li *goquery.Selection) models.Variant {
 	v := models.Variant{}
 
-	// Package size
 	pkgSize := li.Find(`[data-qa-id="product-attribute-package_size"]`).Text()
 	v.Name = strings.TrimSpace(pkgSize)
 
-	// Price
 	priceText := li.Find(`[data-qa-id="product-page-variant-details__display-price"]`).Text()
 	if priceText != "" {
-		v.Price = parsePrice(priceText)
+		v.Price = common.ParsePrice(priceText)
 	}
 
-	// Old price
 	oldPriceText := li.Find(`[data-qa-id="product-old-price"]`).Text()
 	if oldPriceText != "" {
-		if oldPrice := parsePrice(oldPriceText); oldPrice > 0 && oldPrice > v.Price {
+		if oldPrice := common.ParsePrice(oldPriceText); oldPrice > 0 && oldPrice > v.Price {
 			v.OldPrice = oldPrice
 			v.IsDiscounted = true
 		}
 	}
 
-	// Discount badge (e.g. "-5%") — only from elements with bg-light-tertiary
 	li.Find(".bg-light-tertiary").Each(func(_ int, s *goquery.Selection) {
 		text := strings.TrimSpace(s.Text())
 		re := regexp.MustCompile(`^-\d+%$`)
@@ -345,7 +313,6 @@ func parseVariant(li *goquery.Selection) models.Variant {
 		}
 	})
 
-	// Unit price
 	unitPriceEl := li.Find(`[data-qa-id="product-attribute-package_size"]`).Parent().Find("div").Last()
 	if unitPriceEl.Length() > 0 {
 		unitText := strings.TrimSpace(unitPriceEl.Text())
@@ -356,7 +323,6 @@ func parseVariant(li *goquery.Selection) models.Variant {
 		}
 	}
 
-	// URL (from inactive variant links)
 	if link := li.Find(`[data-qa-id="product-variant"]`); link.Length() > 0 {
 		href, exists := link.Attr("href")
 		if exists && href != "" {
@@ -369,15 +335,4 @@ func parseVariant(li *goquery.Selection) models.Variant {
 	}
 
 	return v
-}
-
-func parsePrice(raw string) float64 {
-	raw = strings.ReplaceAll(raw, "€", "")
-	raw = strings.ReplaceAll(raw, "\u00a0", "")
-	raw = strings.ReplaceAll(raw, "&nbsp;", "")
-	raw = strings.ReplaceAll(raw, "*", "")
-	raw = strings.TrimSpace(raw)
-	raw = strings.ReplaceAll(raw, ",", ".")
-	val, _ := strconv.ParseFloat(raw, 64)
-	return val
 }

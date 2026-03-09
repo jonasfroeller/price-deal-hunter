@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hunter-base/pkg/models"
+	"hunter-base/pkg/scrapers/common"
 	"log"
 	"net/http"
 	"regexp"
@@ -49,13 +50,7 @@ type lidlDataLayer struct {
 func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 	url := fmt.Sprintf("%s%s", s.BaseURL, productID)
 
-	product := &models.Product{
-		Source:    Source,
-		ID:        productID,
-		URL:       url,
-		Currency:  "EUR",
-		ScrapedAt: time.Now(),
-	}
+	product := common.NewProduct(Source, productID, url)
 
 	var jsonFound bool
 
@@ -137,18 +132,8 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 
 	// Check for old price (Strikethrough)
 	s.Collector.OnHTML(".ods-price__stroke-price", func(e *colly.HTMLElement) {
-		oldPriceText := e.Text
-		// Clean up currency
-		cleaned := strings.ReplaceAll(oldPriceText, "€", "")
-		cleaned = strings.TrimSpace(cleaned)
-		// If formatting is german "4,99"
-		cleaned = strings.ReplaceAll(cleaned, ",", ".")
-
-		// Extract regex float
-		reFloat := regexp.MustCompile(`\d+\.\d+`)
-		floatMatch := reFloat.FindString(cleaned)
-		if floatMatch != "" {
-			fmt.Sscanf(floatMatch, "%f", &product.OldPrice)
+		if val := common.ParsePrice(e.Text); val > 0 {
+			product.OldPrice = val
 			product.IsDiscounted = true
 		}
 	})
