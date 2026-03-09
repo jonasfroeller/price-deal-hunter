@@ -84,7 +84,7 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 							log.Printf("Cloudflare challenge resolved after %d polls", cfPolls)
 						}
 						var hasResults bool
-						if err := chromedp.Evaluate(`!!(document.querySelector(".search-result-header") || document.querySelector("#product-detail-wrapper") || document.querySelector(".product-card-list"))`, &hasResults).Do(execCtx); err == nil && hasResults {
+						if err := chromedp.Evaluate(`!!(document.querySelector(".search-result-header") || document.querySelector("#product-detail-wrapper") || document.querySelector(".product-card") || document.querySelector(".product-card-list"))`, &hasResults).Do(execCtx); err == nil && hasResults {
 							return nil
 						}
 					}
@@ -106,7 +106,7 @@ func (s *Scraper) Scrape(productID string) (*models.Product, error) {
 
 	parseSearchCard := func(doc *goquery.Document) string {
 		var foundLink string
-		doc.Find(".product-card-list .product-card").Each(func(i int, sel *goquery.Selection) {
+		doc.Find(".product-card").Each(func(i int, sel *goquery.Selection) {
 			if product.Name != "" {
 				return
 			}
